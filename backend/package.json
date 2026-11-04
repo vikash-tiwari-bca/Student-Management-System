@@ -1,13 +1,17 @@
+
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "Student Management System Backend",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node Server.js",
+    "dev": "nodemon Server.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "student-management-system"
+  ],
+  "author": "Vikash Tiwari",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
