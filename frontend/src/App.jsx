@@ -2,26 +2,19 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 
+const API_URL = "http://localhost:5000";
+
 function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [page, setPage] = useState("Dashboard");
+  const [students, setStudents] = useState([]);
   const [editId, setEditId] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // Load student records safely
-  const [students, setStudents] = useState(() => {
-    try {
-      const savedStudents = localStorage.getItem("students");
-      return savedStudents ? JSON.parse(savedStudents) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  // Student Form
   const [form, setForm] = useState({
     roll: "",
     name: "",
@@ -31,28 +24,56 @@ function App() {
     semester: ""
   });
 
-  // Save students in Local Storage
+  // Fetch Students from MySQL Backend
+  const fetchStudents = async () => {
+    try {
+      setLoading(true);
+
+      const response = await fetch(`${API_URL}/students`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Unable to fetch students");
+      }
+
+      setStudents(data);
+    } catch (error) {
+      alert("Error loading students: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load students after login
   useEffect(() => {
-    localStorage.setItem("students", JSON.stringify(students));
-  }, [students]);
-
-  // Dashboard Statistics
-  const totalCourses = new Set(
-    students.map(student => student.course).filter(Boolean)
-  ).size;
-
-  const totalSemesters = new Set(
-    students.map(student => student.semester).filter(Boolean)
-  ).size;
+    if (loggedIn) {
+      fetchStudents();
+    }
+  }, [loggedIn]);
 
   // Login Function
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
 
-    if (username === "admin" && password === "admin123") {
+    try {
+      const response = await fetch(`${API_URL}/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Invalid Login");
+      }
+
       setLoggedIn(true);
-    } else {
-      alert("Invalid Username or Password");
+      setPassword("");
+    } catch (error) {
+      alert(error.message);
     }
   };
 
@@ -66,55 +87,97 @@ function App() {
       course: "",
       semester: ""
     });
+
     setEditId(null);
   };
 
   // Add and Update Student
-  const addStudent = (e) => {
+  const addStudent = async (e) => {
     e.preventDefault();
 
-    if (editId === null) {
-      const rollExists = students.some(
-        student => student.roll === form.roll
-      );
+    const studentData = {
+      roll_no: form.roll.trim(),
+      name: form.name.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      course: form.course.trim(),
+      semester: Number(form.semester)
+    };
 
-      if (rollExists) {
-        alert("Roll Number already exists!");
-        return;
+    try {
+      const url = editId === null
+        ? `${API_URL}/students`
+        : `${API_URL}/students/${editId}`;
+
+      const response = await fetch(url, {
+        method: editId === null ? "POST" : "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(studentData)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error || "Operation failed");
       }
 
-      setStudents([...students, { ...form, id: Date.now() }]);
-      alert("Student Added Successfully!");
-    } else {
-      setStudents(students.map(student =>
-        student.id === editId
-          ? { ...form, id: editId }
-          : student
-      ));
+      alert(data.message);
 
-      alert("Student Updated Successfully!");
+      resetForm();
+      await fetchStudents();
+      setPage("Students");
+
+    } catch (error) {
+      alert("Error: " + error.message);
     }
-
-    resetForm();
-    setPage("Students");
   };
 
   // Delete Student
-  const deleteStudent = (id) => {
-    if (window.confirm("Are you sure you want to delete this student?")) {
-      setStudents(students.filter(student => student.id !== id));
+  const deleteStudent = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this student?")) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/students/${id}`, {
+        method: "DELETE"
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error || "Delete failed");
+      }
+
+      alert(data.message);
 
       if (selectedStudent && selectedStudent.id === id) {
         setSelectedStudent(null);
       }
+
+      await fetchStudents();
+
+    } catch (error) {
+      alert("Error: " + error.message);
     }
   };
 
   // Search Students
   const filteredStudents = students.filter(student =>
     String(student.name || "").toLowerCase().includes(search.toLowerCase()) ||
-    String(student.roll || "").toLowerCase().includes(search.toLowerCase())
+    String(student.roll_no || "").toLowerCase().includes(search.toLowerCase())
   );
+
+  // Dashboard Statistics
+  const totalCourses = new Set(
+    students.map(student => student.course).filter(Boolean)
+  ).size;
+
+  const totalSemesters = new Set(
+    students.map(student => student.semester).filter(Boolean)
+  ).size;
 
   // Export Student Records to CSV
   const exportToCSV = () => {
@@ -128,7 +191,7 @@ function App() {
     ];
 
     const rows = students.map(student => [
-      student.roll,
+      student.roll_no,
       student.name,
       student.email,
       student.phone,
@@ -219,7 +282,10 @@ function App() {
         <button onClick={() => {
           setLoggedIn(false);
           setPassword("");
+          setUsername("");
           setPage("Dashboard");
+          setSelectedStudent(null);
+          setSearch("");
           resetForm();
         }}>
           Logout
@@ -264,6 +330,9 @@ function App() {
             <div className="welcome-box">
               <h2>Welcome to Student Management System</h2>
               <p>Manage student records easily.</p>
+              <button onClick={fetchStudents}>
+                Refresh Dashboard
+              </button>
             </div>
           </>
         )}
@@ -271,7 +340,9 @@ function App() {
         {/* Add Student Page */}
         {page === "Add Student" && (
           <div className="welcome-box">
-            <h2>{editId === null ? "Add New Student" : "Update Student"}</h2>
+            <h2>
+              {editId === null ? "Add New Student" : "Update Student"}
+            </h2>
 
             <form onSubmit={addStudent} className="student-form">
 
@@ -356,6 +427,8 @@ function App() {
               onChange={e => setSearch(e.target.value)}
             />
 
+            {loading && <p>Loading students...</p>}
+
             <div style={{ overflowX: "auto" }}>
               <table>
                 <thead>
@@ -373,7 +446,7 @@ function App() {
                 <tbody>
                   {filteredStudents.map(student => (
                     <tr key={student.id}>
-                      <td>{student.roll}</td>
+                      <td>{student.roll_no}</td>
                       <td>{student.name}</td>
                       <td>{student.email}</td>
                       <td>{student.phone}</td>
@@ -383,12 +456,12 @@ function App() {
                       <td>
                         <button onClick={() => {
                           setForm({
-                            roll: student.roll,
+                            roll: student.roll_no,
                             name: student.name,
                             email: student.email,
                             phone: student.phone,
                             course: student.course,
-                            semester: student.semester
+                            semester: String(student.semester)
                           });
 
                           setEditId(student.id);
@@ -411,7 +484,7 @@ function App() {
               </table>
             </div>
 
-            {filteredStudents.length === 0 && (
+            {!loading && filteredStudents.length === 0 && (
               <p>No Student Records Found</p>
             )}
           </div>
@@ -422,7 +495,7 @@ function App() {
           <div className="welcome-box">
             <h2>Student Full Details</h2>
 
-            <p><b>Roll Number:</b> {selectedStudent.roll}</p>
+            <p><b>Roll Number:</b> {selectedStudent.roll_no}</p>
             <p><b>Name:</b> {selectedStudent.name}</p>
             <p><b>Email:</b> {selectedStudent.email}</p>
             <p><b>Phone:</b> {selectedStudent.phone}</p>
